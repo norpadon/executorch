@@ -24,14 +24,23 @@ from typing import (
     Union,
 )
 
-import executorch.extension.pytree as ex_pytree
 import torch
 import torch._dynamo as torchdynamo
 import torch.fx as fx
-
 import torch.fx._pytree as fx_pytree
 import torch.utils._pytree as pytree
+from torch._C import DisableTorchFunctionSubclass, _EnableTorchFunction  # @manual
+from torch._decomp import get_decompositions
+from torch._dynamo.guards import Guard
+from torch._functorch.eager_transforms import _maybe_unwrap_functional_tensor
 
+# from torch.export import default_decompositions
+from torch.func import functionalize
+from torch.fx.operator_schemas import normalize_function
+from torch.utils._pytree import TreeSpec
+from typing_extensions import TypeAlias
+
+import executorch.extension.pytree as ex_pytree
 from executorch.exir.common import (
     extract_out_arguments,
     format_schema_name,
@@ -42,18 +51,6 @@ from executorch.exir.error import ExportError, ExportErrorType, InternalError
 from executorch.exir.graph_module import LeafValue
 from executorch.exir.operator.convert import is_out_variant
 from executorch.exir.types import ValueSpec
-
-from torch._C import _EnableTorchFunction, DisableTorchFunctionSubclass  # @manual
-from torch._decomp import get_decompositions
-from torch._dynamo.guards import Guard
-from torch._functorch.eager_transforms import _maybe_unwrap_functional_tensor
-from torch.export import default_decompositions
-from torch.func import functionalize
-from torch.fx.operator_schemas import normalize_function
-from torch.utils._pytree import TreeSpec
-
-from typing_extensions import TypeAlias
-
 
 Value: TypeAlias = Union[
     LeafValue,
@@ -135,20 +132,10 @@ def get_stacktrace() -> List[Dict[str, str]]:
                 #  str, SupportsInt, SupportsIndex]` but got `Optional[int]`.
                 lineno = int(s.lineno)
                 # Get the source code 5 lines above/below the current instruction
-                file_contents = [
-                    str(index + 1) + line for index, line in enumerate(file.readlines())
-                ]
-                file_contents_above = "".join(
-                    file_contents[max(lineno - 5, 0) : lineno]
-                )
-                file_contents_below = "".join(
-                    file_contents[lineno : min(lineno + 5, len(file_contents))]
-                )
-                context = (
-                    file_contents_above
-                    + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
-                    + file_contents_below
-                )
+                file_contents = [str(index + 1) + line for index, line in enumerate(file.readlines())]
+                file_contents_above = "".join(file_contents[max(lineno - 5, 0) : lineno])
+                file_contents_below = "".join(file_contents[lineno : min(lineno + 5, len(file_contents))])
+                context = file_contents_above + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n" + file_contents_below
                 contexts.append(context)
         except FileNotFoundError:
             contexts.append("<unknown file: unknown line>")
@@ -241,9 +228,7 @@ class PythonTensor(torch.Tensor):
     __slots__ = ["proxy", "is_immutable"]
 
     @staticmethod
-    def __new__(
-        cls, elem: torch.Tensor, proxy: torch.fx.Proxy, is_immutable: bool = False
-    ) -> torch.Tensor:
+    def __new__(cls, elem: torch.Tensor, proxy: torch.fx.Proxy, is_immutable: bool = False) -> torch.Tensor:
         # assert not elem.requires_grad or not torch.is_grad_enabled()
 
         r = torch.Tensor._make_subclass(cls, elem, elem.requires_grad)
@@ -283,9 +268,7 @@ class PythonTensor(torch.Tensor):
                     kwargs,
                 )
             elif func is torch.nn.functional.linear:
-                return cls.__torch_dispatch__(
-                    torch.ops.aten.linear.default, types, args, kwargs
-                )
+                return cls.__torch_dispatch__(torch.ops.aten.linear.default, types, args, kwargs)
         with DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
 
@@ -417,9 +400,7 @@ class DispatchTracer(fx.Tracer):
     ) -> Value:
         return forward(*args, **kwargs)
 
-    def _module_getattr(
-        self, attr: str, attr_val: Value, parameter_proxy_cache: Dict[str, torch.Tensor]
-    ) -> Value:
+    def _module_getattr(self, attr: str, attr_val: Value, parameter_proxy_cache: Dict[str, torch.Tensor]) -> Value:
         if isinstance(attr_val, torch.nn.Parameter):
             for n, p in self.root.named_parameters():
                 if attr_val is p:
@@ -530,9 +511,7 @@ class DispatchTracer(fx.Tracer):
             if out is None:
                 return None
             if not isinstance(out, torch.Tensor):
-                raise TypeError(
-                    f"Expect model to return torch.Tensor, got type: '{type(out)}' (value: {out})."
-                )
+                raise TypeError(f"Expect model to return torch.Tensor, got type: '{type(out)}' (value: {out}).")
             return unwrap_proxy(out)
 
         returns = [unwrap(out) for out in out_args]
@@ -654,9 +633,7 @@ def dynamo_trace(
     if dynamo_config is None:
         dynamo_config = ExirDynamoConfig()
 
-    with torchdynamo.config.patch(
-        asdict(dynamo_config)
-    ), setting_python_recursive_limit(2000):
+    with torchdynamo.config.patch(asdict(dynamo_config)), setting_python_recursive_limit(2000):
         torchdynamo.reset()
         try:
             # TODO merge executorch functionalization with official
@@ -668,11 +645,7 @@ def dynamo_trace(
                 aten_graph=aten_graph,
                 tracing_mode=tracing_mode,
                 assume_static_by_default=dynamo_config.assume_static_by_default,
-                decomposition_table=(
-                    _default_decomposition_table(_use_old_decomp_table)
-                    if aten_graph
-                    else None
-                ),
+                decomposition_table=(_default_decomposition_table(_use_old_decomp_table) if aten_graph else None),
                 dynamic_shapes=dynamic_shapes,
             )(
                 *copy.deepcopy(args),
@@ -684,9 +657,7 @@ def dynamo_trace(
                 "Please try torchdynamo.explain() to get possible the reasons",
             ) from exc
         except Exception as exc:
-            raise InternalError(
-                "torchdynamo internal error occured. Please see above stacktrace"
-            ) from exc
+            raise InternalError("torchdynamo internal error occured. Please see above stacktrace") from exc
 
 
 def dispatch_trace(

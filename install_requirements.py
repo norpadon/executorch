@@ -39,9 +39,7 @@ def python_is_compatible():
     try:
         import packaging
     except ImportError:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "packaging"], check=True
-        )
+        subprocess.run([sys.executable, "-m", "pip", "install", "packaging"], check=True)
     # Compare the current python version to the range in version_specifier. Exits
     # with status 1 if the version is not compatible, or with status 0 if the
     # version is compatible or the logic itself fails.
@@ -123,11 +121,7 @@ EXIR_REQUIREMENTS = [
     # that we don't need to set any version number there because they have already
     # been installed on CI before this step, so pip won't reinstall them
     f"torch==2.6.0.{NIGHTLY_VERSION}" if USE_PYTORCH_NIGHTLY else "torch",
-    (
-        f"torchvision==0.20.0.{NIGHTLY_VERSION}"
-        if USE_PYTORCH_NIGHTLY
-        else "torchvision"
-    ),  # For testing.
+    (f"torchvision==0.20.0.{NIGHTLY_VERSION}" if USE_PYTORCH_NIGHTLY else "torchvision"),  # For testing.
     "typing-extensions",
 ]
 
@@ -159,8 +153,7 @@ REQUIREMENTS_TO_INSTALL = EXIR_REQUIREMENTS + DEVEL_REQUIREMENTS + EXAMPLES_REQU
 # versions on the provided URL if they aren't available on the default URL.
 subprocess.run(
     [
-        sys.executable,
-        "-m",
+        "uv",
         "pip",
         "install",
         *REQUIREMENTS_TO_INSTALL,
@@ -184,8 +177,7 @@ os.environ["CMAKE_BUILD_ARGS"] = CMAKE_BUILD_ARGS
 # Run the pip install command
 subprocess.run(
     [
-        sys.executable,
-        "-m",
+        "uv",
         "pip",
         "install",
         ".",

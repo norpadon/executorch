@@ -51,16 +51,14 @@ import os
 import platform
 import re
 import sys
+from pathlib import Path
+from typing import List, Optional
 
 # Import this before distutils so that setuptools can intercept the distuils
 # imports.
 import setuptools  # noqa: F401 # usort: skip
-
 from distutils import log
 from distutils.sysconfig import get_python_lib
-from pathlib import Path
-from typing import List, Optional
-
 from setuptools import Extension, setup
 from setuptools.command.build import build
 from setuptools.command.build_ext import build_ext
@@ -119,11 +117,7 @@ class Version:
 
             try:
                 cls.__git_hash_attr = (
-                    subprocess.check_output(
-                        ["git", "rev-parse", "HEAD"], cwd=cls._root_dir()
-                    )
-                    .decode("ascii")
-                    .strip()
+                    subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=cls._root_dir()).decode("ascii").strip()
                 )
             except subprocess.CalledProcessError:
                 cls.__git_hash_attr = ""  # Non-None but empty.
@@ -141,9 +135,7 @@ class Version:
             if not version:
                 # Otherwise, read the version from a local file and add the git
                 # commit if available.
-                version = (
-                    open(os.path.join(cls._root_dir(), "version.txt")).read().strip()
-                )
+                version = open(os.path.join(cls._root_dir(), "version.txt")).read().strip()
                 if cls.git_hash():
                     version += "+" + cls.git_hash()[:7]
             cls.__string_attr = version
@@ -231,9 +223,7 @@ class _BaseExtension(Extension):
         # pattern characters, this will just ensure that the source file exists.
         srcs = tuple(cmake_cache_dir.glob(self.src))
         if len(srcs) != 1:
-            raise ValueError(
-                f"Expected exactly one file matching '{self.src}'; found {repr(srcs)}"
-            )
+            raise ValueError(f"Expected exactly one file matching '{self.src}'; found {repr(srcs)}")
         return srcs[0]
 
 
@@ -316,9 +306,7 @@ class BuiltExtension(_BaseExtension):
             modpath: The dotted path of the python module that maps to the
                 extension.
         """
-        assert (
-            "/" not in modpath
-        ), f"modpath must be a dotted python module path: saw '{modpath}'"
+        assert "/" not in modpath, f"modpath must be a dotted python module path: saw '{modpath}'"
         # This is a real extension, so use the modpath as the name.
         super().__init__(src=src, dst=modpath, name=modpath)
 
@@ -336,9 +324,7 @@ class BuiltExtension(_BaseExtension):
             # looking for a .dylib file instead, in case we're running on macos.
             if self.src.endswith(".so"):
                 dylib_src = re.sub(r"\.so$", ".dylib", self.src)
-                return BuiltExtension(src=dylib_src, modpath=self.dst).src_path(
-                    installer
-                )
+                return BuiltExtension(src=dylib_src, modpath=self.dst).src_path(installer)
             else:
                 raise
 
@@ -445,9 +431,7 @@ class CustomBuildPy(build_py):
         ]:
             src_list = Path(include_dir).rglob("*.h")
             for src in src_list:
-                src_to_dst.append(
-                    (str(src), os.path.join("include/executorch", str(src)))
-                )
+                src_to_dst.append((str(src), os.path.join("include/executorch", str(src))))
         for src, dst in src_to_dst:
             dst = os.path.join(dst_root, dst)
 
@@ -523,9 +507,7 @@ class CustomBuild(build):
         repo_root = os.fspath(Path.cwd())
 
         # If blank, the cmake build system will find an appropriate binary.
-        buck2 = os.environ.get(
-            "BUCK2_EXECUTABLE", os.environ.get("BUCK2", os.environ.get("BUCK", ""))
-        )
+        buck2 = os.environ.get("BUCK2_EXECUTABLE", os.environ.get("BUCK2", os.environ.get("BUCK", "")))
 
         cmake_args = [
             f"-DBUCK2={buck2}",
@@ -583,9 +565,7 @@ class CustomBuild(build):
         # tests and demos to expand the set of targets included in the pip
         # package.
         if "CMAKE_BUILD_ARGS" in os.environ:
-            build_args += [
-                item for item in os.environ["CMAKE_BUILD_ARGS"].split(" ") if item
-            ]
+            build_args += [item for item in os.environ["CMAKE_BUILD_ARGS"].split(" ") if item]
 
         # CMAKE_BUILD_TYPE variable specifies the build type (configuration) for
         # single-configuration generators (e.g., Makefile Generators or Ninja).
@@ -657,9 +637,7 @@ def get_ext_modules() -> List[Extension]:
             # Install the prebuilt pybindings extension wrapper for the runtime,
             # portable kernels, and a selection of backends. This lets users
             # load and execute .pte files from python.
-            BuiltExtension(
-                "_portable_lib.*", "executorch.extension.pybindings._portable_lib"
-            )
+            BuiltExtension("_portable_lib.*", "executorch.extension.pybindings._portable_lib")
         )
     if ShouldBuild.llama_custom_ops():
         ext_modules.append(
