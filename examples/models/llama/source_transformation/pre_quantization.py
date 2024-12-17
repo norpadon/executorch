@@ -12,8 +12,7 @@ from typing import Any, Optional
 
 import torch
 from torch import nn
-
-from torchao.quantization.GPTQ import _check_linear_int4_k, Int8DynActInt4WeightLinear
+from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear, _check_linear_int4_k
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
 from .quantize import Int8DynActInt8WeightLinear, QuantizedGroupEmbedding
@@ -70,15 +69,13 @@ def transform_linear_for_pre_quantization(
     """
 
     if group_size not in [32, 64, 128, 256]:
-        raise ValueError(
-            f"Group size {group_size} is not supported for pre-quantized checkpoint."
-        )
+        raise ValueError(f"Group size {group_size} is not supported for pre-quantized checkpoint.")
     _replace_linear_with_linear_8da4w_for_pre_quantization(
         module,
         checkpoint,
         group_size,
         dtype,
-        dtype,
+        torch.float32,
     )
     return module
 
@@ -90,13 +87,9 @@ def _replace_output_linear_with_linear_int8_for_pre_quantization(
 ):
     def filter_fn(child: torch.nn.Module, cur_fqn: str) -> bool:
         scales_key = f"{cur_fqn}.scales"
-        if (
-            isinstance(child, nn.Linear)
-            and scales_key in checkpoint
-            and "output" in cur_fqn
-        ):
+        if isinstance(child, nn.Linear) and scales_key in checkpoint and "output" in cur_fqn:
             assert checkpoint[f"{cur_fqn}.weight"].dtype == torch.int8
-            assert checkpoint[scales_key].dtype == dtype
+            assert checkpoint[scales_key].dtype == torch.float32
             return True
         return False
 
@@ -176,9 +169,7 @@ def transform_embedding_for_pre_quantization(
     are quantized with the given bit_width and group size for embedding.
     """
     if group_size is not None and group_size not in [0, 32, 64, 128, 256]:
-        raise ValueError(
-            f"Group size {group_size} is not supported for pre-quantized checkpoint."
-        )
+        raise ValueError(f"Group size {group_size} is not supported for pre-quantized checkpoint.")
     _replace_embedding_with_quantized_group_embedding_for_pre_quantization(
         module,
         checkpoint,
